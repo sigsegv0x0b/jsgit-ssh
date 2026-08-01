@@ -53,7 +53,20 @@ async function drainStderr(channel) {
  * @param {string} args.repoPath - the path portion to pass to `<service> '<repoPath>'`
  * @param {string} [args.service] - 'git-upload-pack' (fetch/clone, default) or 'git-receive-pack' (push)
  */
+const VALID_SERVICES = new Set(['git-upload-pack', 'git-receive-pack']);
+
 export function createSshTransport({ channelFactory, repoPath, service = 'git-upload-pack' }) {
+  // `service` is spliced unquoted into the remote command (`${service} 'path'`),
+  // so it must be allowlisted, not just defaulted. These are the only two git
+  // smart-protocol services that exist; a caller passing anything else (e.g. a
+  // string with shell metacharacters) would otherwise be injecting into the
+  // command executed remotely via ssh2 exec. Reject before any channel opens.
+  if (!VALID_SERVICES.has(service)) {
+    throw new Error(
+      `createSshTransport: invalid service '${service}' (must be 'git-upload-pack' or 'git-receive-pack')`
+    );
+  }
+
   /** @type {{channel: import('./channel.js').Channel, residual: Buffer} | null} */
   let pending = null;
 

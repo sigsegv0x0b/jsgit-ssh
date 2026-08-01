@@ -82,3 +82,17 @@ test('clone from the shim is acceptable to canonical git (fsck parity)', async (
     rmSync(sourceRepo, { recursive: true, force: true });
   }
 });
+
+test('createSshTransport rejects a service value that is not a real git service', () => {
+  // `service` is spliced unquoted into the remote command, so anything other
+  // than the two real git services must be rejected before a channel opens.
+  const channelFactory = createLocalChannelFactory();
+  assert.throws(
+    () => createSshTransport({ channelFactory, repoPath: '/some/repo', service: 'git-upload-pack --foo=bar' }),
+    /invalid service/,
+    'extra arguments after a valid service name must be rejected'
+  );
+  // The two real services must still construct fine.
+  assert.ok(createSshTransport({ channelFactory, repoPath: '/some/repo', service: 'git-upload-pack' }));
+  assert.ok(createSshTransport({ channelFactory, repoPath: '/some/repo', service: 'git-receive-pack' }));
+});
