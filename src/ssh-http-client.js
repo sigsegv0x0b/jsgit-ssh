@@ -74,7 +74,7 @@ async function* disposeAfterDrain(iterable, dispose) {
  * fresh connection gets created so it can be exercised offline in tests via
  * createLocalChannelFactory, exactly like transport.js itself is tested --
  * see test/ssh-http-client.test.js. */
-function createHttpClient({ repoPath, shimUrl, createConnection }) {
+function createHttpClient({ repoPath, shimUrl, createConnection, idleTimeoutMs }) {
   let current = null; // the transport for the in-flight GET-then-POST pair, or null between operations
 
   async function disposeCurrent() {
@@ -94,7 +94,7 @@ function createHttpClient({ repoPath, shimUrl, createConnection }) {
 
     const service = serviceFromDiscoverUrl(reqUrl);
     const { channelFactory } = await createConnection();
-    const transport = createSshTransport({ channelFactory, repoPath, service });
+    const transport = createSshTransport({ channelFactory, repoPath, service, idleTimeoutMs });
     try {
       const response = await transport.request({ method: 'GET', url: reqUrl, body });
       current = transport;
@@ -149,6 +149,11 @@ function createHttpClient({ repoPath, shimUrl, createConnection }) {
  * @param {boolean} [args.trustNewHosts=false] - TOFU-accept hosts not already in known_hosts
  * @param {string} [args.knownHostsPath]
  * @param {(msg: string) => void} [args.onProgress]
+ * @param {number} [args.idleTimeoutMs=300000] - abort an operation whose server
+ *   sends/accepts no data for this long (0 disables)
+ * @param {object} [args.algorithms] - ssh2 algorithm allowlists (kex/cipher/hmac/serverHostKey)
+ * @param {number} [args.keepaliveInterval] - ssh2 keepalive (dead-connection detection)
+ * @param {number} [args.keepaliveCountMax]
  * @returns {{ http: object, url: string, dispose(): Promise<void> }} - pass
  *   `http`/`url` straight into any isomorphic-git call, e.g.
  *   `git.clone({ fs, http, url, dir, depth: 1 })`. clone/fetch/push close
@@ -156,13 +161,37 @@ function createHttpClient({ repoPath, shimUrl, createConnection }) {
  *   discover-only call (`listServerRefs`/`getRemoteInfo`) if no further
  *   operation on this client is coming, so its connection doesn't linger.
  */
-export function createSshHttpClient({ url, username, identityFile, passphrase, trustNewHosts = false, knownHostsPath, onProgress }) {
+export function createSshHttpClient({
+  url,
+  username,
+  identityFile,
+  passphrase,
+  trustNewHosts = false,
+  knownHostsPath,
+  onProgress,
+  idleTimeoutMs,
+  algorithms,
+  keepaliveInterval,
+  keepaliveCountMax,
+}) {
   const parsed = parseSshUrl(url);
-  const connectionOptions = { url, username, identityFile, passphrase, trustNewHosts, knownHostsPath, onProgress };
+  const connectionOptions = {
+    url,
+    username,
+    identityFile,
+    passphrase,
+    trustNewHosts,
+    knownHostsPath,
+    onProgress,
+    algorithms,
+    keepaliveInterval,
+    keepaliveCountMax,
+  };
   return createHttpClient({
     repoPath: parsed.path,
     shimUrl: buildShimUrl(parsed.path),
     createConnection: () => createSshConnection(connectionOptions),
+    idleTimeoutMs,
   });
 }
 

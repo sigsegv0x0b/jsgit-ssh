@@ -11,14 +11,29 @@ export function parseSshUrl(url) {
   if (!url.includes('://')) {
     const m = url.match(/^(?:([^@\s]+)@)?([^:\s]+):(.+)$/);
     if (m) {
+      rejectUserinfoColon(m[1], url);
       return { user: m[1], host: m[2], port: 22, path: m[3] };
     }
   }
   const m = url.match(/^ssh:\/\/(?:([^@/]+)@)?([^:/]+)(?::(\d+))?(\/.*)$/);
   if (m) {
-    return { user: m[1], host: m[2], port: m[3] ? parseInt(m[3], 10) : 22, path: m[4] };
+    rejectUserinfoColon(m[1], url);
+    const port = m[3] ? parseInt(m[3], 10) : 22;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error(`Unsupported SSH git URL: ${url} (port must be 1-65535)`);
+    }
+    return { user: m[1], host: m[2], port, path: m[4] };
   }
   throw new Error(`Unsupported SSH git URL: ${url} (expected ssh://[user@]host[:port]/path or [user@]host:path)`);
+}
+
+/** SSH has no password-in-URL form. Without this check, `user:pass@host`
+ * would be sent to the server verbatim as the login name -- leaking the
+ * "password" half into the username field and into error messages. */
+function rejectUserinfoColon(user, url) {
+  if (user && user.includes(':')) {
+    throw new Error(`Unsupported SSH git URL: ${url} (a password in the userinfo is not supported for SSH)`);
+  }
 }
 
 /**

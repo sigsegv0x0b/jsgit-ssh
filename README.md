@@ -22,7 +22,13 @@ const refs = await git.listServerRefs({ http, url });          // discover-only:
 await dispose();                                                // ...call this or the connection lingers
 ```
 
-`createSshHttpClient()` accepts the same connection options as any `ssh` command: `username`, `identityFile`, `passphrase`, `trustNewHosts`, `knownHostsPath`, `onProgress`.
+`createSshHttpClient()` accepts the same connection options as any `ssh` command: `username`, `identityFile`, `passphrase`, `trustNewHosts`, `knownHostsPath`, `onProgress`. It also accepts robustness/hardening options:
+
+- `idleTimeoutMs` — abort the operation if the server sends or accepts no data for this long (default `300000`; `0` disables). Guards against stalled or malicious servers hanging the client forever.
+- `algorithms` — passed straight through to `ssh2` (`{ kex, cipher, hmac, serverHostKey }` allowlists) if you want to restrict negotiation below ssh2's already-modern defaults.
+- `keepaliveInterval` / `keepaliveCountMax` — SSH-level keepalive for dead-connection detection (defaults `30000` / `3`).
+
+Server-controlled data is bounded on all paths: ref advertisements are capped at 64 MiB, and remote stderr is tail-capped at 64 KiB for error reporting.
 
 ## Connection lifecycle
 

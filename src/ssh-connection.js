@@ -17,6 +17,9 @@ import { parseSshUrl, buildShimUrl } from './ssh-url.js';
  * @param {boolean} [args.trustNewHosts=false]
  * @param {string} [args.knownHostsPath]
  * @param {(msg: string) => void} [args.onProgress]
+ * @param {object} [args.algorithms] - ssh2 algorithm allowlists (kex/cipher/hmac/serverHostKey)
+ * @param {number} [args.keepaliveInterval] - ssh2 keepalive (dead-connection detection)
+ * @param {number} [args.keepaliveCountMax]
  * @returns {Promise<{ channelFactory: object, shimUrl: string, parsed: {user, host, port, path} }>}
  */
 export async function createSshConnection({
@@ -27,6 +30,9 @@ export async function createSshConnection({
   trustNewHosts = false,
   knownHostsPath,
   onProgress,
+  algorithms,
+  keepaliveInterval,
+  keepaliveCountMax,
 }) {
   const parsed = parseSshUrl(url);
   const user = username || parsed.user || 'git';
@@ -55,6 +61,9 @@ export async function createSshConnection({
     privateKey,
     passphrase,
     hostVerifier,
+    algorithms,
+    keepaliveInterval,
+    keepaliveCountMax,
   });
 
   return { channelFactory, shimUrl: buildShimUrl(parsed.path), parsed };

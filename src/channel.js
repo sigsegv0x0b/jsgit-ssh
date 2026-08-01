@@ -5,9 +5,11 @@
 //
 // Channel interface:
 //   stdout      - AsyncIterable<Buffer> (readable side of the command)
-//   write(buf)  - write to the command's stdin
+//   write(buf)  - write to the command's stdin; returns the underlying
+//                 stream's backpressure boolean (false = stop writing until drain())
+//   drain()     - resolves once stdin is writable again after write() returned false
 //   end()       - close stdin (signals "no more input", e.g. EOF on a pipe)
-//   waitForExit() -> Promise<{ code: number|null, signal: string|null, stderr: string }>
+//   waitForExit() -> Promise<{ code: number|null, signal: string|null, stderr: string, error: Error|null }>
 //                 resolves once the channel fully closes; safe to call any
 //                 time, including after stdout has already been consumed.
 //   close()     - force-terminate/cleanup (used on error paths)
@@ -28,6 +30,14 @@ export function shellQuote(arg) {
 }
 
 /**
+ * Maximum bytes of remote stderr retained for error reporting. Stderr is
+ * server-controlled and accumulates for the entire channel lifetime, so it
+ * must be capped; when exceeded, only the TAIL is kept (the most useful part
+ * for an error message -- a failing remote's final diagnostics).
+ */
+const STDERR_CAP = 64 * 1024;
+
+/**
  * Wraps a Node child_process-like object (anything with .stdout, .stderr,
  * .stdin, and an 'exit'/'close' event) into the Channel interface. Stdout
  * and stderr consumers are attached synchronously (before returning) so
@@ -37,7 +47,34 @@ export function shellQuote(arg) {
  */
 function wrapProcessLike(proc) {
   const stderrChunks = [];
-  proc.stderr.on('data', chunk => stderrChunks.push(chunk));
+  let stderrLen = 0;
+  proc.stderr.on('data', chunk => {
+    stderrChunks.push(chunk);
+    stderrLen += chunk.length;
+    if (stderrLen > STDERR_CAP) {
+      const tail = Buffer.concat(stderrChunks).subarray(stderrLen - STDERR_CAP);
+      stderrChunks.length = 0;
+      stderrChunks.push(tail);
+      stderrLen = tail.length;
+    }
+  });
+
+  // 'error' with no listener on an EventEmitter is a thrown exception, so
+  // every stream we touch gets a handler: a spawn failure or a mid-stream
+  // channel error must fail the operation, not crash the process. The first
+  // error is recorded and surfaced through waitForExit().
+  let streamError = null;
+  const onStreamError = err => {
+    if (!streamError) streamError = err;
+  };
+  proc.on('error', onStreamError);
+  if (proc.stdin && proc.stdin !== proc.stdout && typeof proc.stdin.on === 'function') {
+    // Separate stdin stream (child_process case; for ssh2 stdin === stdout)
+    proc.stdin.on('error', onStreamError);
+  }
+  if (proc.stderr && typeof proc.stderr.on === 'function') {
+    proc.stderr.on('error', onStreamError);
+  }
 
   let exitInfo = null;
   const exitPromise = new Promise(resolve => {
@@ -57,7 +94,7 @@ function wrapProcessLike(proc) {
     proc.on('close', (c, s) => {
       if (code === null && typeof c === 'number') code = c;
       if (signal === null && s) signal = s;
-      exitInfo = { code, signal, stderr: Buffer.concat(stderrChunks).toString('utf8') };
+      exitInfo = { code, signal, stderr: Buffer.concat(stderrChunks).toString('utf8'), error: streamError };
       resolve(exitInfo);
     });
   });
@@ -65,7 +102,10 @@ function wrapProcessLike(proc) {
   return {
     stdout: proc.stdout,
     write(buf) {
-      proc.stdin.write(buf);
+      return proc.stdin.write(buf);
+    },
+    drain() {
+      return new Promise(resolve => proc.stdin.once('drain', resolve));
     },
     end() {
       proc.stdin.end();
@@ -119,6 +159,9 @@ export function createSshChannelFactory({
   agent,
   hostVerifier,
   readyTimeout = 20000,
+  keepaliveInterval = 30000,
+  keepaliveCountMax = 3,
+  algorithms,
 }) {
   let clientPromise = null;
 
@@ -154,14 +197,26 @@ export function createSshChannelFactory({
       }
       client.on('ready', () => resolve(client));
       client.on('error', err => reject(err));
-      client.connect({
-        host,
-        port,
-        username,
-        readyTimeout,
-        hostVerifier,
-        ...authOpts,
-      });
+      // ssh2's connect() validates its config SYNCHRONOUSLY and throws on
+      // e.g. an unparseable privateKey (wrong/missing passphrase on an
+      // encrypted key is the common case). Without this try/catch the throw
+      // escapes the async executor, leaving the returned promise unsettled
+      // forever -- openChannel() would hang instead of failing.
+      try {
+        client.connect({
+          host,
+          port,
+          username,
+          readyTimeout,
+          keepaliveInterval,
+          keepaliveCountMax,
+          hostVerifier,
+          ...(algorithms ? { algorithms } : {}),
+          ...authOpts,
+        });
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 

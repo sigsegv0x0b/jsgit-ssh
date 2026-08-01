@@ -13,7 +13,7 @@
 // only genuinely *unknown* hosts are eligible for trust-on-first-use.
 
 import { createHash, createHmac } from 'node:crypto';
-import { readFile, appendFile, mkdir, chmod } from 'node:fs/promises';
+import { readFile, appendFile, mkdir, chmod, lstat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import ssh2 from 'ssh2';
@@ -87,7 +87,10 @@ function lineApplies(entry, candidates) {
   if (entry.hashed) {
     return candidates.some(c => {
       const digest = createHmac('sha1', entry.hashed.salt).update(c).digest('base64');
-      return digest === entry.hashed.hash;
+      // Compare padding-insensitively: OpenSSH's b64 output is padded, but
+      // some tools write unpadded base64, and a non-match here silently
+      // degrades a known host to "unknown" (refused, or TOFU-able).
+      return digest.replace(/=+$/, '') === entry.hashed.hash.replace(/=+$/, '');
     });
   }
   let matched = false;
@@ -151,6 +154,16 @@ export async function appendKnownHost({ host, port = 22, keytype, keyBuffer, kno
   const [candidate] = hostCandidateStrings(host, port);
   const line = `${candidate} ${keytype} ${keyBuffer.toString('base64')}\n`;
   await mkdir(path.dirname(knownHostsPath), { recursive: true, mode: 0o700 });
+  // Never follow a symlink: appending to (and chmodding) a symlinked
+  // known_hosts would modify whatever attacker-chosen file it points at.
+  try {
+    const st = await lstat(knownHostsPath);
+    if (st.isSymbolicLink()) {
+      throw new Error(`appendKnownHost: refusing to write to symlinked known_hosts file: ${knownHostsPath}`);
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
   await appendFile(knownHostsPath, line, { mode: 0o600 });
   await chmod(knownHostsPath, 0o600);
   return line.trim();
