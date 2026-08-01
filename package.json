@@ -16,14 +16,25 @@
   },
   "keywords": [
     "isomorphic-git",
+    "isomorphic-git-ssh",
     "git",
     "ssh",
+    "ssh transport",
+    "git over ssh",
     "transport",
     "http-client",
+    "http shim",
     "ssh2",
     "clone",
     "push",
-    "fetch"
+    "fetch",
+    "pull",
+    "remote",
+    "scp",
+    "upload-pack",
+    "receive-pack",
+    "pure js",
+    "node"
   ],
   "license": "MIT",
   "engines": {
