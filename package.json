@@ -1,0 +1,38 @@
+{
+  "name": "jsgit-ssh",
+  "version": "0.1.1",
+  "description": "An SSH transport for isomorphic-git: an http-client shim that speaks git-upload-pack/git-receive-pack over an ssh2 exec channel, so git.clone/fetch/push/listServerRefs work over SSH in pure JS",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "src/"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "keywords": [
+    "isomorphic-git",
+    "git",
+    "ssh",
+    "transport",
+    "http-client",
+    "ssh2",
+    "clone",
+    "push",
+    "fetch"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "peerDependencies": {
+    "isomorphic-git": ">=1.24.0"
+  }
+}
