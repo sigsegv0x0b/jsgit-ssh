@@ -37,6 +37,14 @@
     "node"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sigsegv0x0b/jsgit-ssh.git"
+  },
+  "homepage": "https://github.com/sigsegv0x0b/jsgit-ssh#readme",
+  "bugs": {
+    "url": "https://github.com/sigsegv0x0b/jsgit-ssh/issues"
+  },
   "engines": {
     "node": ">=18"
   },
